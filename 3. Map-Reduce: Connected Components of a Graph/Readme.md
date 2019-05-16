@@ -9,7 +9,7 @@ An undirected graph is represented in the input text file using one line per gra
 1,2,3,4,5,6,7
 represents the vertex with ID 1, which is connected to the vertices with IDs 2, 3, 4, 5, 6, and 7. For example, the following graph: 
 
-![alt text](https://github.com/ssrishabh96/BigData-Spark-Projects/p2.png "Sample Graph")
+![alt text](p2.png "Sample Graph")
 
 
 is represented in the input file as follows:
