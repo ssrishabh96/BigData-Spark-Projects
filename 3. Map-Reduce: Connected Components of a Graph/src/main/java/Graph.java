@@ -1,0 +1,282 @@
+import java.io.*;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.Scanner;
+import java.util.Vector;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.*;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.Reducer;
+import org.apache.hadoop.mapreduce.lib.input.*;
+import org.apache.hadoop.mapreduce.lib.output.*;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.conf.Configured;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.mapreduce.*;
+import org.apache.hadoop.io.*;
+import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+import org.apache.hadoop.util.Tool;
+import org.apache.hadoop.util.ToolRunner;
+
+class Vertex implements Writable {
+    short tag;                  // 0 for a graph vertex, 1 for a group number
+    long group;                 // the group where this vertex belongs to
+    long VID;                   // the vertex ID
+    Vector<Long> adjacent= new Vector<Long>();      // the vertex neighbors
+
+    Vertex(short tag, long group, long VID, Vector<Long> adjacent) {
+        this.tag = tag;
+        this.group = group;
+        this.VID = VID;
+        this.adjacent = adjacent;
+    }
+
+    Vertex(short tag, long group) {
+        this.tag = tag;
+        this.group = group;
+    }
+
+    Vertex() {    }
+
+    @Override
+    public void write(DataOutput dataOutput) throws IOException {
+        dataOutput.writeShort(tag);
+        dataOutput.writeLong(group);
+        dataOutput.writeLong(VID);
+        dataOutput.writeInt(adjacent.size());
+        for (int i = 0; i < adjacent.size(); i++) {
+            dataOutput.writeLong(adjacent.get(i));
+        }
+    }
+
+    @Override
+    public void readFields(DataInput dataInput) throws IOException {
+        tag = dataInput.readShort();
+        group = dataInput.readLong();
+        VID = dataInput.readLong();
+
+        Vector<Long> temp = new Vector<Long>();
+
+        int size = dataInput.readInt();
+        for (int i = 0; i < size; i++) {
+            temp.add(dataInput.readLong());
+        }
+        this.adjacent=temp;
+    }
+
+    public Vertex cloneData() {
+        Vector<Long> clone = new Vector<Long>();
+        clone.addAll(this.adjacent);
+        return new Vertex(this.tag, this.group, this.VID, clone);
+    }
+
+    public int getTag() {
+        return tag;
+    }
+
+    public void setTag(short tag) {
+        this.tag = tag;
+    }
+
+    public long getGroup() {
+        return group;
+    }
+
+    public void setGroup(long group) {
+        this.group = group;
+    }
+
+    public long getVID() {
+        return VID;
+    }
+
+    public void setVID(long VID) {
+        this.VID = VID;
+    }
+
+    public void setAdjacent(Vector<Long> adjacent) {
+        this.adjacent = adjacent;
+    }
+
+    public String getAdjacentStr() {
+
+        String temp = "";
+        Iterator<Long> itr = adjacent.iterator();
+
+        while (itr.hasNext()) {
+            temp = temp + itr.next() + ",";
+        }
+        return temp;
+    }
+
+    @Override
+    public String toString() {
+        return (this.tag + "," + this.group + "," + this.VID + "," + this.adjacent);
+    }
+}
+
+public class Graph extends Configured implements Tool {
+
+    static class FirstMapper extends Mapper<Object, Text, LongWritable, Vertex> {
+        protected void map(Object key, Text line, Context context) throws IOException, InterruptedException {
+        
+        Scanner scanner = new Scanner(line.toString()).useDelimiter(",");
+        long VID = scanner.nextLong();
+        Vector<Long> adjacent = new Vector<Long>();
+
+        while(scanner.hasNext()) {
+            adjacent.add(scanner.nextLong());
+        }
+        context.write(new LongWritable(VID), new Vertex((short)0, VID, VID, adjacent));
+
+//
+//            String adjacent_str =Integer.toString(scanner.nextInt());
+//            while(scanner.hasNext()){
+//                adjacent_str = adjacent_str + "," + scanner.nextInt();
+//            }
+//
+//            scanner=new Scanner(adjacent_str).useDelimiter(",");
+//            Vector<Long> tokens=new Vector<Long>();
+//
+//            int i=0;
+//            while(scanner.hasNext()){
+//                tokens.add(scanner.nextLong());
+//            }
+//
+//            //make vertex to send
+//            Vertex vertex = new Vertex((short) 0,VID,VID, tokens);
+
+        }
+    }
+
+    /* ... */
+
+    public static class SecondMapper extends Mapper<LongWritable, Vertex, LongWritable, Vertex> {
+
+        @Override
+        public void map(LongWritable key, Vertex vertex, Context context)
+                throws IOException, InterruptedException {
+
+            context.write(new LongWritable(vertex.VID), vertex);
+
+            for (Long adjacent : vertex.adjacent) {
+                context.write(new LongWritable(adjacent), new Vertex( (short)1, vertex.getGroup()));
+            }
+            // Iterator<Long> itr = vertex.adjacent.iterator();
+            // int count=0;
+            // while(itr.hasNext()){
+            //     count++;
+            // }
+            // while (itr.hasNext()){
+            //     context.write(new LongWritable(count), new Vertex((short) 1,vertex.group));
+            // }
+        }
+    }
+
+    public static class SecondReducer extends Reducer<LongWritable, Vertex, LongWritable, Vertex> {
+        
+        Vector<Long> adjcnt = new Vector<Long>();
+
+        @Override
+        public void reduce(LongWritable key, Iterable<Vertex> values, Context context)
+                throws IOException, InterruptedException {
+
+            long m = Long.MAX_VALUE;
+
+            for (Vertex vertex : values) {
+
+                if (vertex.tag == 0) {
+                    adjcnt = (Vector<Long>) vertex.adjacent.clone();
+                }
+                m = Math.min(m, vertex.group);
+            }
+            context.write(new LongWritable(m), new Vertex((short)0, m, key.get(), adjcnt));
+        }
+    }
+
+    public static class FinalMapper extends Mapper<LongWritable, Vertex, LongWritable, LongWritable> {
+        @Override
+        public void map(LongWritable key, Vertex value, Context context)
+                throws IOException, InterruptedException {
+
+            Scanner scanner = new Scanner(value.toString().replaceAll("\\s+", "")).useDelimiter(",");
+            context.write(key, new LongWritable(1));
+        }
+    }
+
+    public static class FinalReducer extends Reducer<LongWritable, LongWritable, LongWritable, LongWritable> {
+        @Override
+        public void reduce(LongWritable key, Iterable<LongWritable> values, Context context)
+                throws IOException, InterruptedException {
+
+            long m =(long) 0;
+
+            for (LongWritable value : values) {
+                m += value.get();
+            }
+
+            context.write(key, new LongWritable(m));
+        }
+    }
+
+    public static void main(String[] args) throws Exception {
+
+        int flag = ToolRunner.run(new Configuration(), new Graph(), args);
+        System.exit(flag);
+    }
+
+    public int run(String[] args) throws Exception {
+
+        /* ... First Map-Reduce job to read the graph */
+        Configuration conf = new Configuration();
+        Job job = Job.getInstance(conf,"Project 3");
+        job.setJarByClass(Graph.class);
+        job.setMapperClass(FirstMapper.class);
+        job.setNumReduceTasks(0);
+        job.setMapOutputKeyClass(LongWritable.class);
+        job.setMapOutputValueClass(Vertex.class);
+        job.setOutputKeyClass(LongWritable.class);
+        job.setOutputValueClass(Vertex.class);
+        job.setOutputFormatClass(SequenceFileOutputFormat.class);
+        MultipleInputs.addInputPath(job,new Path(args[0]),TextInputFormat.class,FirstMapper.class);
+        FileOutputFormat.setOutputPath(job, new Path(args[1] + "/f0"));
+        job.waitForCompletion(true);
+
+        /* ... Second Map-Reduce job to propagate the group number*/
+        for (int i = 0; i < 5; i++) {
+            job = Job.getInstance(conf, "Project 3");
+            job.setJarByClass(Graph.class);
+            job.setMapperClass(SecondMapper.class);
+            job.setReducerClass(SecondReducer.class);
+            job.setMapOutputKeyClass(LongWritable.class);
+            job.setMapOutputValueClass(Vertex.class);
+            job.setOutputKeyClass(LongWritable.class);
+            job.setOutputValueClass(Vertex.class);
+            job.setOutputFormatClass(SequenceFileOutputFormat.class);
+            job.setInputFormatClass(TextInputFormat.class);
+            MultipleInputs.addInputPath(job, new Path(args[1] + "/f" + i), SequenceFileInputFormat.class, SecondMapper.class);
+            FileOutputFormat.setOutputPath(job, new Path(args[1] + "/f" + (i + 1)));
+            job.waitForCompletion(true);
+        }
+
+        /* ... Final Map-Reduce job to calculate the connected component sizes */
+        job = Job.getInstance(conf, "Project 3");
+        job.setJarByClass(Graph.class);
+        job.setMapperClass(FinalMapper.class);
+        job.setReducerClass(FinalReducer.class);
+        job.setMapOutputKeyClass(LongWritable.class);
+        job.setMapOutputValueClass(LongWritable.class);
+        job.setOutputKeyClass(LongWritable.class);
+        job.setOutputValueClass(LongWritable.class);
+        job.setInputFormatClass(TextInputFormat.class);
+        job.setOutputFormatClass(TextOutputFormat.class);
+        MultipleInputs.addInputPath(job, new Path(args[1] + "/f5"), SequenceFileInputFormat.class, FinalMapper.class);
+        FileOutputFormat.setOutputPath(job, new Path(args[2]));
+        job.waitForCompletion(true);
+
+        return 0;
+    }
+
+}
