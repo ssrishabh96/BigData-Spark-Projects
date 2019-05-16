@@ -17,7 +17,7 @@ which says that there are 30 nodes that have 10 neighbors.
 
 ### Compile & Running
 
-// Compile Multiply.java using:
+// Compile Graph.hql using:
 
 ```java
 hive -f graph.hql --hiveconf G=small-graph.txt
